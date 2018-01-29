@@ -1,0 +1,115 @@
+--- a/lib/halfnode.py
++++ b/lib/halfnode.py
+@@ -26,6 +26,9 @@ if settings.COINDAEMON_ALGO == 'scrypt':
+ elif settings.COINDAEMON_ALGO == 'quark':
+     log.debug("########################################### Loading Quark Support #########################################################")
+     import quark_hash
++elif settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++    log.debug("########################################### Loading Yescrypt Support #########################################################")
++    import ytn_yescrypt
+ else: 
+     log.debug("########################################### Loading SHA256 Support ######################################################")
+ 
+@@ -241,6 +244,8 @@ class CBlock(object):
+             self.quark = None
+         elif settings.COINDAEMON_ALGO == 'riecoin':
+             self.riecoin = None
++        elif settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++            self.ytn_yescrypt = None
+         else: pass
+         if settings.COINDAEMON_Reward == 'POS':
+             self.signature = b""
+@@ -282,7 +287,19 @@ class CBlock(object):
+         else: pass
+         return ''.join(r)
+ 
+-    if settings.COINDAEMON_ALGO == 'scrypt':
++    if settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++       def calc_ytn_yescrypt(self):
++           if self.ytn_yescrypt is None:
++               r = []
++               r.append(struct.pack("<i", self.nVersion))
++               r.append(ser_uint256(self.hashPrevBlock))
++               r.append(ser_uint256(self.hashMerkleRoot))
++               r.append(struct.pack("<I", self.nTime))
++               r.append(struct.pack("<I", self.nBits))
++               r.append(struct.pack("<I", self.nNonce))
++               self.ytn_yescrypt = uint256_from_str(ytn_yescrypt.getPoWHash(''.join(r)))
++           return self.ytn_yescrypt
++    elif settings.COINDAEMON_ALGO == 'scrypt':
+        def calc_scrypt(self):
+            if self.scrypt is None:
+                r = []
+@@ -333,7 +350,9 @@ class CBlock(object):
+ 
+ 
+     def is_valid(self):
+-        if settings.COINDAEMON_ALGO == 'riecoin':
++        if settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++            self.calc_ytn_yescrypt()
++        elif settings.COINDAEMON_ALGO == 'riecoin':
+             self.calc_riecoin()
+         elif settings.COINDAEMON_ALGO == 'scrypt':
+             self.calc_scrypt()
+@@ -347,6 +366,9 @@ class CBlock(object):
+         else:
+             target = uint256_from_compact(self.nBits)
+ 
++        if settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++            if self.ytn_yescrypt > target:
++                return False
+         if settings.COINDAEMON_ALGO == 'riecoin':
+             if self.riecoin < target:
+                 return False
+diff --git a/lib/template_registry.py b/lib/template_registry.py
+index 4202190..e4913f6 100644
+--- a/lib/template_registry.py
++++ b/lib/template_registry.py
+@@ -11,6 +11,8 @@ elif settings.COINDAEMON_ALGO == 'quark':
+     import quark_hash
+ elif settings.COINDAEMON_ALGO == 'skeinhash':
+     import skeinhash
++elif settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++    import ytn_yescrypt
+ else: pass
+ from twisted.internet import defer
+ from lib.exceptions import SubmitException
+@@ -154,6 +156,8 @@ class TemplateRegistry(object):
+             diff1 = 0x0000ffff00000000000000000000000000000000000000000000000000000000
+         elif settings.COINDAEMON_ALGO == 'scrypt-jane':
+             diff1 = 0x0000ffff00000000000000000000000000000000000000000000000000000000
++        elif settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++            diff1 = 0x0000ffff00000000000000000000000000000000000000000000000000000000
+         elif settings.COINDAEMON_ALGO == 'quark':
+             diff1 = 0x000000ffff000000000000000000000000000000000000000000000000000000
+         elif settings.COINDAEMON_ALGO == 'riecoin':
+@@ -257,6 +261,8 @@ class TemplateRegistry(object):
+             hash_bin = ltc_scrypt.getPoWHash(''.join([ header_bin[i*4:i*4+4][::-1] for i in range(0, 20) ]))
+         elif settings.COINDAEMON_ALGO  == 'scrypt-jane':
+             hash_bin = yac_scrypt.getPoWHash(''.join([ header_bin[i*4:i*4+4][::-1] for i in range(0, 20) ]), int(ntime, 16))
++        elif settings.COINDAEMON_ALGO == 'ytn_yescrypt':
++            hash_bin = ytn_yescrypt.getPoWHash(''.join([ header_bin[i*4:i*4+4][::-1] for i in range(0, 20) ]))
+         elif settings.COINDAEMON_ALGO == 'quark':
+             hash_bin = quark_hash.getPoWHash(''.join([ header_bin[i*4:i*4+4][::-1] for i in range(0, 20) ]))
+ 	elif settings.COINDAEMON_ALGO == 'skeinhash':
+@@ -285,6 +291,8 @@ class TemplateRegistry(object):
+ 	    if hash_int < target_user:
+                 raise SubmitException("Share does not meet target")
+         else:
++            log.debug("%064x" % hash_int)
++            log.debug("%064x" % target_user)
+ 	    if hash_int > target_user:
+                 raise SubmitException("Share is above target")
+             # Mostly for debugging purposes
+diff --git a/requirements.txt b/requirements.txt
+index 39ee71a..0f76e88 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,6 +1,6 @@
+ BeautifulSoup==3.2.1
+ Jinja2==2.7.2
+-Magic-file-extensions==0.2
++Magic-file-extensions==0.4.15
+ MarkupSafe==0.18
+ MySQL-python==1.2.5
+ PyYAML==3.10
